@@ -1,0 +1,267 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Petrol Bunk Finder (Free with OpenStreetMap)</title>
+  <!-- Leaflet CSS (using jsDelivr CDN for reliability) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css" />
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+  <!-- Leaflet JS (using jsDelivr CDN for reliability) -->
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+</head>
+<body>
+  <h2>Click on the map to find nearby petrol bunks</h2>
+  <div id="controls">
+    <div class="control-group">
+      <label for="mode">Mode of Transport: </label>
+      <select id="mode" onchange="updateTravelTimes()">
+        <option value="walking">Walking</option>
+        <option value="bike">Bike</option>
+        <option value="car">Car</option>
+        <option value="auto">Auto</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label for="sort">Sort By: </label>
+      <select id="sort" onchange="sortAndShowPlaces()">
+        <option value="ai">AI Recommendation</option>
+        <option value="distance">Distance</option>
+        <option value="rating">Rating</option>
+      </select>
+    </div>
+  </div>
+  <div id="container">
+    <div id="map"></div>
+    <div id="info"></div>
+  </div>
+
+  <script>
+    let map, userMarker, infoBox;
+    let placeMarkers = [];
+    let currentPlaces = [];
+    let currentOrigin = null;
+    let routeLayer = null;
+
+    // Initialize the map with Leaflet
+    function initMap() {
+      try {
+        console.log("Initializing map...");
+        const defaultLocation = [11.0168, 76.9558]; // Coimbatore
+        map = L.map('map').setView(defaultLocation, 14);
+        console.log("Map initialized:", map);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        infoBox = document.getElementById("info");
+
+        map.on("click", async (event) => {
+          const loc = event.latlng;
+          map.setView(loc, 14);
+          clearMarkers();
+          clearInfo();
+          clearRoute();
+
+          if (userMarker) userMarker.remove();
+          userMarker = L.marker(loc).addTo(map)
+            .bindPopup("Selected Location").openPopup();
+
+          currentOrigin = loc;
+          await fetchNearby(loc);
+        });
+      } catch (error) {
+        console.error("Failed to initialize map:", error);
+        alert("Failed to load the map. Please check your internet connection or refresh the page.");
+      }
+    }
+
+    async function fetchNearby(location) {
+      const url = "/api/petrolbunks/";
+      const formData = new FormData();
+      formData.append("lat", location.lat);
+      formData.append("lng", location.lng);
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          body: formData
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        const data = await response.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        currentPlaces = data.places;
+        sortAndShowPlaces();
+      } catch (error) {
+        console.error("Error fetching petrol bunks:", error.message);
+        alert("Failed to fetch petrol bunks: " + error.message);
+      }
+    }
+
+    function sortAndShowPlaces() {
+      const sortBy = document.getElementById("sort").value;
+      let sortedPlaces = [...currentPlaces];
+
+      if (sortBy === "rating") {
+        sortedPlaces.sort((a, b) => b.rating - a.rating);
+      } else if (sortBy === "distance") {
+        sortedPlaces.sort((a, b) => a.distance - b.distance);
+      } else {
+        // Default to AI score
+        sortedPlaces.sort((a, b) => b.score - a.score);
+      }
+
+      sortedPlaces = sortedPlaces.slice(0, 5);
+      showPlaces(sortedPlaces, currentOrigin);
+    }
+
+    function showPlaces(places, origin) {
+      clearMarkers();
+      clearInfo();
+
+      places.forEach(place => {
+        const position = [place.lat, place.lng];
+        const marker = L.marker(position).addTo(map)
+          .bindPopup(`${place.name} – ⭐${place.rating}`);
+        placeMarkers.push(marker);
+
+        const travelInfo = estimateTravelTime(origin, position);
+
+        appendInfo(place, travelInfo, position, origin);
+      });
+    }
+
+    function estimateTravelTime(origin, destination) {
+      const distance = calculateDistance(origin.lat, origin.lng, destination[0], destination[1]);
+      const mode = document.getElementById("mode").value;
+
+      // Define speeds for each mode of transport (in km/h)
+      const speeds = {
+        walking: 5,  // Average walking speed
+        bike: 15,    // Average biking speed
+        car: 40,     // Average car speed in urban areas
+        auto: 30     // Average auto-rickshaw speed in urban areas
+      };
+      const speed = speeds[mode] || 40; // Default to car speed if mode not found
+      const timeHours = distance / speed;
+      const timeMinutes = Math.round(timeHours * 60);
+
+      return {
+        distance: distance.toFixed(1) + " km",
+        duration: timeMinutes > 0 ? `${timeMinutes} mins` : "< 1 min"
+      };
+    }
+
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    async function showRoute(origin, destination) {
+      clearRoute();
+
+      if (!origin || !origin.lat || !origin.lng || !destination || !destination[0] || !destination[1]) {
+        console.error("Invalid coordinates:", { origin, destination });
+        alert("Cannot show route: Invalid coordinates.");
+        return;
+      }
+
+      const url = "/api/directions/";
+      const formData = new FormData();
+      formData.append("origin_lng", origin.lng);
+      formData.append("origin_lat", origin.lat);
+      formData.append("dest_lng", destination[1]);
+      formData.append("dest_lat", destination[0]);
+
+      console.log("Fetching route from Django backend:", url);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          body: formData
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        const data = await response.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+          routeLayer = L.polyline(route, { color: '#007bff', weight: 4 }).addTo(map);
+          map.fitBounds(routeLayer.getBounds());
+        } else {
+          alert("Unable to find a route to the selected petrol bunk.");
+        }
+      } catch (error) {
+        console.error("Error fetching route:", error.message);
+        alert("Failed to fetch route: " + error.message);
+      }
+    }
+
+    function updateTravelTimes() {
+      if (!currentOrigin || currentPlaces.length === 0) return;
+      sortAndShowPlaces();
+    }
+
+    function appendInfo(place, travelInfo, position, origin) {
+      const div = document.createElement("div");
+      div.className = "place-card";
+      div.innerHTML = `
+        <div class="place-header">
+          <strong>${place.name}</strong>
+          <span class="rating">⭐ ${place.rating}</span>
+        </div>
+        <p>Distance: ${travelInfo.distance}</p>
+        <p>Time: ${travelInfo.duration}</p>
+        <p>AI Score: ${(place.score * 100).toFixed(1)}%</p>
+      `;
+      div.onclick = () => {
+        map.setView(position, 16);
+        showRoute(origin, position);
+        highlightSelectedCard(div);
+      };
+      infoBox.appendChild(div);
+    }
+
+    function highlightSelectedCard(selectedCard) {
+      const cards = document.querySelectorAll(".place-card");
+      cards.forEach(card => card.classList.remove("selected"));
+      selectedCard.classList.add("selected");
+    }
+
+    function clearMarkers() {
+      placeMarkers.forEach(m => m.remove());
+      placeMarkers = [];
+    }
+
+    function clearInfo() {
+      infoBox.innerHTML = "";
+    }
+
+    function clearRoute() {
+      if (routeLayer) {
+        routeLayer.remove();
+        routeLayer = null;
+      }
+    }
+
+    // Initialize the map after DOM is loaded
+    document.addEventListener("DOMContentLoaded", function() {
+      initMap();
+    });
+  </script>
+</body>
+</html>
