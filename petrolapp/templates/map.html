@@ -132,14 +132,14 @@
           .bindPopup(`${place.name} – ⭐${place.rating}`);
         placeMarkers.push(marker);
 
-        {% comment %} const travelInfo = estimateTravelTime(origin, position);
+      const travelInfo = estimateTravelTime(origin, position);
 
-        appendInfo(place, travelInfo, position, origin); {% endcomment %}
+        appendInfo(place, travelInfo, position, origin);
       });
     }       
               
 
-      function estimateTravelTime(origin, destination) {
+        function estimateTravelTime(origin, destination) {
       const distance = calculateDistance(origin.lat, origin.lng, destination[0], destination[1]);
       const mode = document.getElementById("mode").value;
 
