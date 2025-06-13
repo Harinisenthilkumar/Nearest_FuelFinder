@@ -16,18 +16,19 @@
     <div class="control-group">
       <label for="mode">Mode of Transport: </label>
       <select id="mode" onchange="updateTravelTimes()">
-        <option value="walking">Walking</option>
+      <option value="walking">Walking</option>
         <option value="bike">Bike</option>
         <option value="car">Car</option>
-        <option value="auto">Auto</option>
+        <option value="auto">Auto</option> 
       </select>
     </div>
     <div class="control-group">
       <label for="sort">Sort By: </label>
       <select id="sort" onchange="sortAndShowPlaces()">
-        <option value="ai">AI Recommendation</option>
-        <option value="distance">Distance</option>
+      {% comment %} <option value="ai">AI Recommendation</option> {% endcomment %}
+       
         <option value="rating">Rating</option>
+        <option value="distance">Distance</option>
       </select>
     </div>
   </div>
@@ -131,13 +132,14 @@
           .bindPopup(`${place.name} – ⭐${place.rating}`);
         placeMarkers.push(marker);
 
-        const travelInfo = estimateTravelTime(origin, position);
+        {% comment %} const travelInfo = estimateTravelTime(origin, position);
 
-        appendInfo(place, travelInfo, position, origin);
+        appendInfo(place, travelInfo, position, origin); {% endcomment %}
       });
-    }
+    }       
+              
 
-    function estimateTravelTime(origin, destination) {
+      function estimateTravelTime(origin, destination) {
       const distance = calculateDistance(origin.lat, origin.lng, destination[0], destination[1]);
       const mode = document.getElementById("mode").value;
 
@@ -256,7 +258,7 @@
         routeLayer.remove();
         routeLayer = null;
       }
-    }
+    } 
 
     // Initialize the map after DOM is loaded
     document.addEventListener("DOMContentLoaded", function() {
